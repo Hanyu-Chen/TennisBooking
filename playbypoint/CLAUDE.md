@@ -75,6 +75,15 @@ The target platform (`app.playbypoint.com`) is a Rails/Hotwire app behind Cloudf
   - Success returns `200` with an empty `{}` body — there's no useful confirmation in the response itself. Verify success by re-fetching `/programs/{slug}` and checking `user_clinics` for a new entry with today's `created_at` and `payment.status == "captured"`.
   - There is a separate `/api/clinics/{id}/book_with_bolt` endpoint — this is the **staff/admin** in-person card-reader flow (takes `device_id`, allows `custom_price` overrides), not the customer-facing booking path. Don't confuse the two.
 - **Raw court reservations** (as opposed to clinic/program bookings) have not been investigated — the `/api/public/clinics/{id}` flow above is specific to clinics/programs; a plain court-slot reservation likely has a different endpoint under the same app.
+- **`program_slug` is just a URL path segment**, not a query param or JSON field — it's substituted directly into `GET /programs/{program_slug}` (see `get_program_page()`). It's the site's human-readable clinic identifier (React-router-friendly, not the numeric `clinic_id`), case-sensitive as PlayByPoint stores it (mixed case for most, all-lowercase for `beginnerclinic`).
+- **Discovering all valid slugs**: the `/programs` listing page itself is a React SPA (`ClinicsList` component in `application-*.js`) that renders no slugs server-side — it populates client-side via `GET /api/public/clinics` (optionally filtered with `category`/`search`/`date`/`date_range` query params; the facility's category ids come from the `data-react-props` blob on `/programs` itself, e.g. `facilityCategories: [[1143, "Clinic"], [1145, "Academy"]]`). Calling it with no params returns every clinic across all categories for the logged-in facility, each with a `url` field giving its `/programs/{slug}` path directly — no need to enumerate categories separately. As of 2026-08-04, for facility_id 265 (Tennis Prime Independence Harbor) this returned all 5 current program slugs:
+  - `AdvancedBeginner` — Advanced Beginner (Clinic)
+  - `beginnerclinic` — Beginner Clinic (Clinic)
+  - `IntermediateClinic` — Intermediate Clinic (Clinic) — the current `DEFAULT_PROGRAM_SLUG`
+  - `private-lesson-da085204-2cc6-474d-adce-0f477daddab7` — Private Lesson (Academy)
+  - `private-group-class` — Semi Private Lesson (Academy)
+
+  This list is a live snapshot, not a fixed enum — programs get added/removed, so re-query `/api/public/clinics` rather than trusting this list to stay current.
 - **Safety note**: `book_court()` charges a real card immediately on a successful call, with no dry-run/confirmation step and no idempotency guard against double-booking the same session. `lambda_handler` requires `clinic_id`/`plan_id`/`session_id`/`card_last4` explicitly in the event with no defaults, specifically so an accidental no-args invocation fails loudly instead of silently re-charging.
 
 Implementation lives in `playbypoint/` (a package, not a flat script):
