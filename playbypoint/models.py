@@ -5,8 +5,8 @@ payloads we build to send back, so a shape mismatch raises a clear
 validation error immediately instead of a confusing KeyError/TypeError
 deep inside booking logic.
 """
+
 from datetime import date as date_type
-from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -64,17 +64,17 @@ class SavedCard(BaseModel):
 
 class Payment(BaseModel):
     method: str
-    card_details: Optional[SavedCard] = None
+    card_details: SavedCard | None = None
     coupon: Coupon = Coupon()
-    payment_intent_id: Optional[str] = None
-    booking_package_purchase_id: Optional[int] = None
+    payment_intent_id: str | None = None
+    booking_package_purchase_id: int | None = None
 
 
 class ClinicBookingRequest(BaseModel):
     """Body for POST /api/public/clinics/{clinic_id} (the `_bookClinic` request)."""
 
     plan_id: int
-    user_child_id: Optional[int] = None
+    user_child_id: int | None = None
     clinic_lesson_ids: list[int]
     free_passes: list = []
     apply_package_pass_to_lesson_ids: list = []

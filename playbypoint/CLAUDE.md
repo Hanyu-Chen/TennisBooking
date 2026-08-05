@@ -4,20 +4,19 @@ A Python project for tennis court booking automation.
 
 ## Project structure
 
-- `venv/` — Python virtual environment (do not commit)
+- `pyproject.toml` — project metadata, runtime deps, and the `dev` extra (pytest/ruff/mypy/tox), managed with `uv`
+- `.venv/` — uv-managed virtual environment (do not commit)
 - `README.md` — project overview
 
 ## Development setup
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt   # once dependencies are added
+uv sync --all-extras   # or: make sync -- creates .venv with runtime + dev deps
 ```
 
 ## Conventions
 
-- Use Python 3 for all scripts and tooling
+- Use Python 3.13+ for all scripts and tooling
 - Keep secrets (API keys, credentials, `.env`) out of git
 - Only create git commits when explicitly requested
 - Match existing code style in each file; keep changes minimal and focused
@@ -27,9 +26,13 @@ pip install -r requirements.txt   # once dependencies are added
 
 | Task | Command |
 |------|---------|
-| Activate venv | `source venv/bin/activate` |
-| Run tests | `pytest` (once tests are added) |
-| Lint | `ruff check .` (once configured) |
+| Install/sync dev env | `make sync` (or `uv sync --all-extras`) |
+| Run a script | `uv run python -m playbypoint.book_court ...` |
+| Run tests | `make test` (or `uv run pytest`) |
+| Lint | `make lint` (or `uv run ruff check .`) |
+| Format | `make format` (or `uv run ruff format .`) |
+| Type-check | `uv run mypy playbypoint` |
+| Full matrix (lint + type + tests) | `uv run tox` |
 
 ## Goals
 

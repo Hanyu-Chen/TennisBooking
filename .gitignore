@@ -1,6 +1,12 @@
 venv/
+.venv/
 .env
 __pycache__/
 *.pyc
 log/*
 !log/.keep
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.tox/
+*.egg-info/

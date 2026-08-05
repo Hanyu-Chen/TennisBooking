@@ -17,22 +17,23 @@ it's simply one of the objects returned by GET /api/cards (the client just
 passes through whatever the saved-card-selection UI received), keyed by that
 card's PlayByPoint-internal `id`.
 """
+
 import html
 import json
+import logging
 import os
 import re
 import sys
-import logging
 
 from curl_cffi import requests
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from playbypoint.models import (
-    BookingEvent,
-    ClinicBookingRequest,
     DEFAULT_CARD_LAST4,
     DEFAULT_PROGRAM_SLUG,
+    BookingEvent,
+    ClinicBookingRequest,
     Payment,
     ProgramData,
     SavedCard,
@@ -184,12 +185,14 @@ def lambda_handler(event, context):
     try:
         login(session)
         session_cookie = session.cookies.get("_paybycourt_session", "")
-        logging.info({
-            "msg": "Login successful",
-            "email": os.environ.get("USER_EMAIL"),
-            "logged_in_check": is_logged_in(session),
-            "session_fingerprint": session_cookie[:8],
-        })
+        logging.info(
+            {
+                "msg": "Login successful",
+                "email": os.environ.get("USER_EMAIL"),
+                "logged_in_check": is_logged_in(session),
+                "session_fingerprint": session_cookie[:8],
+            }
+        )
         try:
             booking_event = BookingEvent.model_validate(event)
         except ValidationError as e:
@@ -209,7 +212,7 @@ def lambda_handler(event, context):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(f"Usage: python -m playbypoint.book_court YYYY-MM-DD [program_slug] [card_last4]")
+        print("Usage: python -m playbypoint.book_court YYYY-MM-DD [program_slug] [card_last4]")
         sys.exit(1)
 
     event = {"date": sys.argv[1]}

@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tennisbooking"
+version = "0.1.0"
+description = "Automation for tennis court/clinic booking on PlayByPoint."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "curl_cffi>=0.16.0",
+    "python-dotenv>=1.2.2",
+    "pydantic>=2.13.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.1",
+    "mypy>=2.3.0",
+    "tox>=4.58.0",
+    "tox-uv>=1.36.0",
+]
+
+[tool.setuptools]
+packages = ["playbypoint"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (undefined names, unused imports, etc.)
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade (modern syntax for the target Python version)
+    "B",   # flake8-bugbear (likely bugs and design issues)
+]
+
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "curl_cffi.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.tox]
+env_list = ["lint", "type", "py313"]
+requires = ["tox>=4.58.0", "tox-uv>=1.36.0"]
+
+[tool.tox.env_run_base]
+description = "run the test suite"
+extras = ["dev"]
+commands = [["pytest", "{posargs}"]]
+
+[tool.tox.env.py313]
+base_python = "python3.13"
+
+[tool.tox.env.lint]
+description = "lint with ruff"
+extras = ["dev"]
+commands = [["ruff", "check", "."]]
+
+[tool.tox.env.format]
+description = "format with ruff"
+extras = ["dev"]
+commands = [["ruff", "format", "."]]
+
+[tool.tox.env.type]
+description = "type-check with mypy"
+extras = ["dev"]
+commands = [["mypy", "playbypoint"]]
