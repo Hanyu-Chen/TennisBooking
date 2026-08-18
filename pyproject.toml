@@ -12,6 +12,7 @@ dependencies = [
     "curl_cffi>=0.16.0",
     "python-dotenv>=1.2.2",
     "pydantic>=2.13.4",
+    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]
@@ -21,10 +22,14 @@ dev = [
     "mypy>=2.3.0",
     "tox>=4.58.0",
     "tox-uv>=1.36.0",
+    "types-PyYAML>=6.0.12",
 ]
 
 [tool.setuptools]
 packages = ["playbypoint"]
+
+[tool.setuptools.package-data]
+playbypoint = ["*.yaml"]
 
 [tool.ruff]
 line-length = 100

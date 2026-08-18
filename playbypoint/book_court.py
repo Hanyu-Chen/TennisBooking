@@ -18,12 +18,14 @@ passes through whatever the saved-card-selection UI received), keyed by that
 card's PlayByPoint-internal `id`.
 """
 
+import argparse
 import html
 import json
 import logging
 import os
 import re
 import sys
+from datetime import date, timedelta
 
 from curl_cffi import requests
 from dotenv import load_dotenv
@@ -32,11 +34,14 @@ from pydantic import ValidationError
 from playbypoint.models import (
     DEFAULT_CARD_LAST4,
     DEFAULT_PROGRAM_SLUG,
+    SCHEDULED_CARD_LAST4,
+    WEEKDAY_SCHEDULE,
     BookingEvent,
     ClinicBookingRequest,
     Payment,
     ProgramData,
     SavedCard,
+    Weekday,
 )
 
 load_dotenv()
@@ -180,19 +185,69 @@ def book_court(
     }
 
 
+def next_occurrence(weekday: Weekday, today: date | None = None) -> date:
+    """The next calendar date (today counts) that falls on the given weekday,
+    found by scanning the next 8 days."""
+    today = today or date.today()
+    # Weekday is declared Monday..Sunday, matching date.weekday()'s 0..6.
+    weekdays_by_index = list(Weekday)
+    for offset in range(8):
+        candidate = today + timedelta(days=offset)
+        if weekdays_by_index[candidate.weekday()] == weekday:
+            return candidate
+    raise RuntimeError(f"No {weekday.value} found in the next 8 days")
+
+
+def book_scheduled_programs(
+    session: requests.Session,
+    card_last4: str = SCHEDULED_CARD_LAST4,
+) -> list[dict]:
+    """Book every program WEEKDAY_SCHEDULE (weekday_schedule.yaml) assigns to
+    each configured weekday's next occurrence. One program's failure doesn't
+    stop the rest -- every attempt is recorded in the returned per-program
+    results."""
+    results: list[dict] = []
+    for weekday, programs in WEEKDAY_SCHEDULE.items():
+        target_date = next_occurrence(weekday)
+        for program in programs:
+            entry = {
+                "weekday": weekday.value,
+                "date": target_date.isoformat(),
+                "program_slug": program.value,
+            }
+            try:
+                result = book_court(
+                    session,
+                    date=target_date.isoformat(),
+                    program_slug=program.value,
+                    card_last4=card_last4,
+                )
+                results.append({**entry, "status": "success", "result": result})
+            except RuntimeError as e:
+                results.append({**entry, "status": "failed", "reason": str(e)})
+    return results
+
+
+def _login_and_log(session: requests.Session) -> None:
+    login(session)
+    session_cookie = session.cookies.get("_paybycourt_session", "")
+    logging.info(
+        {
+            "msg": "Login successful",
+            "email": os.environ.get("USER_EMAIL"),
+            "logged_in_check": is_logged_in(session),
+            "session_fingerprint": session_cookie[:8],
+        }
+    )
+
+
 def lambda_handler(event, context):
+    """Book a single explicit date/program_slug. See BookingEvent for the
+    required event shape."""
     session = requests.Session(impersonate="chrome124")
     try:
-        login(session)
-        session_cookie = session.cookies.get("_paybycourt_session", "")
-        logging.info(
-            {
-                "msg": "Login successful",
-                "email": os.environ.get("USER_EMAIL"),
-                "logged_in_check": is_logged_in(session),
-                "session_fingerprint": session_cookie[:8],
-            }
-        )
+        _login_and_log(session)
+
         try:
             booking_event = BookingEvent.model_validate(event)
         except ValidationError as e:
@@ -210,17 +265,51 @@ def lambda_handler(event, context):
     return {"status": "success", "result": result}
 
 
+def scheduled_lambda_handler(event, context):
+    """Book every program WEEKDAY_SCHEDULE (weekday_schedule.yaml) assigns to
+    each configured weekday's next occurrence, using the card from that same
+    YAML file. This is a distinct Lambda entry point from lambda_handler --
+    point the EventBridge rule driving the recurring cron booking at this
+    handler specifically, so it always runs the full schedule; event content
+    is ignored."""
+    session = requests.Session(impersonate="chrome124")
+    try:
+        _login_and_log(session)
+        results = book_scheduled_programs(session)
+    except (RuntimeError, NotImplementedError) as e:
+        return {"status": "failed", "reason": str(e)}
+
+    any_failed = any(r["status"] == "failed" for r in results)
+    status = "partial_failure" if any_failed else "success"
+    return {"status": status, "results": results}
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python -m playbypoint.book_court YYYY-MM-DD [program_slug] [card_last4]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Book a PlayByPoint clinic/lesson.")
+    parser.add_argument("date", nargs="?", help="YYYY-MM-DD -- book a single specific date/program")
+    parser.add_argument("program_slug", nargs="?", default=DEFAULT_PROGRAM_SLUG)
+    parser.add_argument("card_last4", nargs="?", default=DEFAULT_CARD_LAST4)
+    parser.add_argument(
+        "--scheduled",
+        action="store_true",
+        help=(
+            "Run the full weekday_schedule.yaml schedule (every weekday it defines, "
+            "at its next occurrence) instead of a single date/program_slug."
+        ),
+    )
+    args = parser.parse_args()
 
-    event = {"date": sys.argv[1]}
-    if len(sys.argv) > 2:
-        event["program_slug"] = sys.argv[2]
-    if len(sys.argv) > 3:
-        event["card_last4"] = sys.argv[3]
+    if args.scheduled:
+        result = scheduled_lambda_handler({}, None)
+    else:
+        if not args.date:
+            parser.error("date is required unless --scheduled is given")
+        event = {
+            "date": args.date,
+            "program_slug": args.program_slug,
+            "card_last4": args.card_last4,
+        }
+        result = lambda_handler(event, None)
 
-    result = lambda_handler(event, None)
     print(result)
     sys.exit(0 if result["status"] == "success" else 1)

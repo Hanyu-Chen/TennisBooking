@@ -7,11 +7,53 @@ deep inside booking logic.
 """
 
 from datetime import date as date_type
+from enum import StrEnum
+from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, field_validator
 
 DEFAULT_PROGRAM_SLUG = "IntermediateClinic"
 DEFAULT_CARD_LAST4 = "1740"
+
+_WEEKDAY_SCHEDULE_PATH = Path(__file__).parent / "weekday_schedule.yaml"
+
+
+class Program(StrEnum):
+    ADVANCED_BEGINNER = "AdvancedBeginner"
+    INTERMEDIATE_CLINIC = "IntermediateClinic"
+    PRIVATE_LESSON = "private-lesson-da085204-2cc6-474d-adce-0f477daddab7"
+
+
+class Weekday(StrEnum):
+    MONDAY = "Monday"
+    TUESDAY = "Tuesday"
+    WEDNESDAY = "Wednesday"
+    THURSDAY = "Thursday"
+    FRIDAY = "Friday"
+    SATURDAY = "Saturday"
+    SUNDAY = "Sunday"
+
+
+def _load_schedule_config(path: Path) -> tuple[dict[Weekday, list[Program]], str]:
+    with path.open() as f:
+        raw = yaml.safe_load(f)
+
+    schedule: dict[Weekday, list[Program]] = {}
+    for key, value in raw["schedule"].items():
+        weekday = Weekday(key)
+        schedule[weekday] = [Program(p) for p in value]
+
+    card_last4 = raw["card_last4"]
+    if not card_last4.isdigit() or len(card_last4) != 4:
+        raise ValueError(f"card_last4 in {path} must be exactly 4 digits")
+
+    return schedule, card_last4
+
+
+WEEKDAY_SCHEDULE: dict[Weekday, list[Program]]
+SCHEDULED_CARD_LAST4: str
+WEEKDAY_SCHEDULE, SCHEDULED_CARD_LAST4 = _load_schedule_config(_WEEKDAY_SCHEDULE_PATH)
 
 
 class ClinicPrice(BaseModel):

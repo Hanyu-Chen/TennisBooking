@@ -1,0 +1,17 @@
+# Config for scheduled_lambda_handler (see book_court.py). Validated at
+# import time by playbypoint.models._load_schedule_config.
+
+# Card used for every scheduled booking.
+card_last4: "1740"
+
+# Which program(s) to book for the next occurrence of each weekday. Keys
+# must match playbypoint.models.Weekday values; list items must match
+# playbypoint.models.Program values.
+schedule:
+  Wednesday:
+    - AdvancedBeginner
+    - IntermediateClinic
+    - private-lesson-da085204-2cc6-474d-adce-0f477daddab7
+  Thursday:
+    - AdvancedBeginner
+    - IntermediateClinic
