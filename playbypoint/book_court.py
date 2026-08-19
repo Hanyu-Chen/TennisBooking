@@ -47,11 +47,9 @@ from playbypoint.models import (
 )
 
 load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 BASE_URL = "https://app.playbypoint.com"
 
@@ -234,7 +232,7 @@ def book_scheduled_programs(
                 )
                 results.success_count += 1
             except RuntimeError as e:
-                logging.error(
+                logger.error(
                     {
                         "weekday": weekday.value,
                         "date": target_date.isoformat(),
@@ -255,7 +253,7 @@ def book_scheduled_programs(
 def _login_and_log(session: requests.Session) -> None:
     login(session)
     session_cookie = session.cookies.get("_paybycourt_session", "")
-    logging.info(
+    logger.info(
         {
             "msg": "Login successful",
             "email": os.environ.get("USER_EMAIL"),
@@ -289,7 +287,7 @@ def lambda_handler(event, context):
             card_last4=booking_event.card_last4,
         )
     except (RuntimeError, NotImplementedError) as e:
-        logging.error(
+        logger.error(
             {
                 "date": booking_event.date.isoformat(),
                 "program_slug": booking_event.program_slug,

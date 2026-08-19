@@ -10,3 +10,5 @@ log/*
 .pytest_cache/
 .tox/
 *.egg-info/
+
+*.zip
