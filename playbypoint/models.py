@@ -142,3 +142,10 @@ class BookingEvent(BaseModel):
         if not v.isdigit() or len(v) != 4:
             raise ValueError("card_last4 must be exactly 4 digits")
         return v
+
+
+class ScheduledBookingResults(BaseModel):
+    """Outcome of book_scheduled_programs: how many programs succeeded vs. failed."""
+
+    success_count: int = 0
+    failed_count: int = 0

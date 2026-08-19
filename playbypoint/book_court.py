@@ -42,6 +42,7 @@ from playbypoint.models import (
     Payment,
     ProgramData,
     SavedCard,
+    ScheduledBookingResults,
     Weekday,
 )
 
@@ -215,30 +216,39 @@ def next_occurrence(weekday: Weekday, today: date | None = None) -> date:
 def book_scheduled_programs(
     session: requests.Session,
     card_last4: str = SCHEDULED_CARD_LAST4,
-) -> list[dict]:
+) -> ScheduledBookingResults:
     """Book every program WEEKDAY_SCHEDULE (weekday_schedule.yaml) assigns to
-    each configured weekday's next occurrence. One program's failure doesn't
-    stop the rest -- every attempt is recorded in the returned per-program
-    results."""
-    results: list[dict] = []
+    each configured weekday's next occurrence. One program's failure is
+    logged and doesn't stop the rest; once every program has been attempted,
+    a RuntimeError is raised summarizing any failures."""
+    results = ScheduledBookingResults()
     for weekday, programs in WEEKDAY_SCHEDULE.items():
         target_date = next_occurrence(weekday)
         for program in programs:
-            entry = {
-                "weekday": weekday.value,
-                "date": target_date.isoformat(),
-                "program_slug": program.value,
-            }
             try:
-                result = book_court(
+                book_court(
                     session,
                     date=target_date.isoformat(),
                     program_slug=program.value,
                     card_last4=card_last4,
                 )
-                results.append({**entry, "status": "success", "result": result})
+                results.success_count += 1
             except RuntimeError as e:
-                results.append({**entry, "status": "failed", "reason": str(e)})
+                logging.error(
+                    {
+                        "weekday": weekday.value,
+                        "date": target_date.isoformat(),
+                        "program_slug": program.value,
+                        "reason": str(e),
+                    }
+                )
+                results.failed_count += 1
+                continue
+
+    if results.failed_count:
+        total = results.success_count + results.failed_count
+        raise RuntimeError(f"{results.failed_count}/{total} scheduled bookings failed")
+
     return results
 
 
@@ -262,14 +272,15 @@ def _create_session() -> requests.Session:
 def lambda_handler(event, context):
     """Book a single explicit date/program_slug. See BookingEvent for the
     required event shape."""
+
+    try:
+        booking_event: BookingEvent = BookingEvent.model_validate(event)
+    except ValidationError as e:
+        return {"status": "failed", "reason": f"Invalid event: {e}"}
+
     session = _create_session()
     try:
         _login_and_log(session)
-
-        try:
-            booking_event = BookingEvent.model_validate(event)
-        except ValidationError as e:
-            raise RuntimeError(f"Invalid event: {e}") from e
 
         result = book_court(
             session,
@@ -278,6 +289,13 @@ def lambda_handler(event, context):
             card_last4=booking_event.card_last4,
         )
     except (RuntimeError, NotImplementedError) as e:
+        logging.error(
+            {
+                "date": booking_event.date.isoformat(),
+                "program_slug": booking_event.program_slug,
+                "reason": str(e),
+            }
+        )
         return {"status": "failed", "reason": str(e)}
 
     return {"status": "success", "result": result}
@@ -297,9 +315,7 @@ def scheduled_lambda_handler(event, context):
     except (RuntimeError, NotImplementedError) as e:
         return {"status": "failed", "reason": str(e)}
 
-    any_failed = any(r["status"] == "failed" for r in results)
-    status = "partial_failure" if any_failed else "success"
-    return {"status": status, "results": results}
+    return {"status": "success", "results": results.model_dump(mode="json")}
 
 
 if __name__ == "__main__":
