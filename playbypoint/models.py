@@ -26,6 +26,7 @@ class Program(StrEnum):
     ADVANCED_BEGINNER = "AdvancedBeginner"
     INTERMEDIATE_CLINIC = "IntermediateClinic"
     PRIVATE_LESSON = "private-lesson-da085204-2cc6-474d-adce-0f477daddab7"
+    SEMI_PRIVATE_LESSON = "private-group-class"
 
 
 class Weekday(StrEnum):
