@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from curl_cffi import requests
 from dotenv import load_dotenv
@@ -34,6 +34,7 @@ from pydantic import ValidationError
 from playbypoint.models import (
     DEFAULT_CARD_LAST4,
     DEFAULT_PROGRAM_SLUG,
+    MIN_HOURS_BEFORE_SESSION,
     SCHEDULED_CARD_LAST4,
     WEEKDAY_SCHEDULE,
     BookingEvent,
@@ -48,7 +49,7 @@ load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("log/booking.log")],
+    handlers=[logging.StreamHandler()],
 )
 
 BASE_URL = "https://app.playbypoint.com"
@@ -128,6 +129,19 @@ def find_open_session_id(program_data: ProgramData, date: str) -> int:
         if s.lesson_date == date:
             if s.player_count >= s.capacity:
                 raise RuntimeError(f"Session on {date} is full ({s.player_count}/{s.capacity})")
+
+            session_start = datetime.combine(
+                datetime.strptime(date, "%Y-%m-%d").date(),
+                (datetime.min + timedelta(seconds=s.hour_start)).time(),
+                tzinfo=UTC,
+            )
+            hours_until = (session_start - datetime.now(UTC)).total_seconds() / 3600
+            if hours_until < MIN_HOURS_BEFORE_SESSION:
+                raise RuntimeError(
+                    f"Session on {date} starts in {hours_until:.1f}h, under the "
+                    f"{MIN_HOURS_BEFORE_SESSION}h circuit breaker -- refusing to book"
+                )
+
             return s.id
     raise RuntimeError(f"No session found on {date}")
 
@@ -241,10 +255,14 @@ def _login_and_log(session: requests.Session) -> None:
     )
 
 
+def _create_session() -> requests.Session:
+    return requests.Session(impersonate="chrome124", proxy=os.environ.get("PROXY_URL"))
+
+
 def lambda_handler(event, context):
     """Book a single explicit date/program_slug. See BookingEvent for the
     required event shape."""
-    session = requests.Session(impersonate="chrome124")
+    session = _create_session()
     try:
         _login_and_log(session)
 
@@ -272,7 +290,7 @@ def scheduled_lambda_handler(event, context):
     point the EventBridge rule driving the recurring cron booking at this
     handler specifically, so it always runs the full schedule; event content
     is ignored."""
-    session = requests.Session(impersonate="chrome124")
+    session = _create_session()
     try:
         _login_and_log(session)
         results = book_scheduled_programs(session)

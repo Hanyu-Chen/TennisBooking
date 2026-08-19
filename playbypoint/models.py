@@ -16,6 +16,9 @@ from pydantic import BaseModel, field_validator
 DEFAULT_PROGRAM_SLUG = "IntermediateClinic"
 DEFAULT_CARD_LAST4 = "1740"
 
+# Circuit breaker: refuse to book a session starting sooner than this.
+MIN_HOURS_BEFORE_SESSION = 30
+
 _WEEKDAY_SCHEDULE_PATH = Path(__file__).parent / "weekday_schedule.yaml"
 
 
