@@ -235,6 +235,14 @@ def book_scheduled_programs(
                         same_day_protection=same_day_protection,
                     )
                     results.success_count += 1
+                    logger.info(
+                        {
+                            "msg": "Booking succeeded",
+                            "weekday": weekday.value,
+                            "date": target_date.isoformat(),
+                            "program_slug": program.value,
+                        }
+                    )
                 except RuntimeError as e:
                     logger.error(
                         {
@@ -300,6 +308,13 @@ def lambda_handler(event, context):
         )
         return {"status": "failed", "reason": str(e)}
 
+    logger.info(
+        {
+            "msg": "Booking succeeded",
+            "date": booking_event.date.isoformat(),
+            "program_slug": booking_event.program_slug,
+        }
+    )
     return {"status": "success", "result": result}
 
 
