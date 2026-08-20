@@ -34,9 +34,9 @@ from pydantic import ValidationError
 from playbypoint.models import (
     DEFAULT_CARD_LAST4,
     DEFAULT_PROGRAM_SLUG,
-    MIN_HOURS_BEFORE_SESSION,
     SCHEDULED_CARD_LAST4,
     WEEKDAY_SCHEDULE,
+    WEEKDAY_SCHEDULE_SAME_DAY_PROTECTION,
     BookingEvent,
     ClinicBookingRequest,
     Payment,
@@ -123,24 +123,19 @@ def parse_program_data(page: requests.Response, program_slug: str) -> ProgramDat
     raise RuntimeError(f"Could not find clinic data on /programs/{program_slug}")
 
 
-def find_open_session_id(program_data: ProgramData, date: str) -> int:
+def find_open_session_id(
+    program_data: ProgramData, date: str, same_day_protection: bool = True
+) -> int:
+    # Circuit breaker: refuse to book a session on today's date (in UTC, matching
+    # when this is run), regardless of what time that session starts -- avoids the
+    # timezone guesswork of comparing hour_start (facility-local) against now(UTC).
+    if same_day_protection and date == datetime.now(UTC).date().isoformat():
+        raise RuntimeError(f"Refusing to book a session on today's date ({date})")
+
     for s in program_data.sessions:
         if s.lesson_date == date:
             if s.player_count >= s.capacity:
                 raise RuntimeError(f"Session on {date} is full ({s.player_count}/{s.capacity})")
-
-            session_start = datetime.combine(
-                datetime.strptime(date, "%Y-%m-%d").date(),
-                (datetime.min + timedelta(seconds=s.hour_start)).time(),
-                tzinfo=UTC,
-            )
-            hours_until = (session_start - datetime.now(UTC)).total_seconds() / 3600
-            if hours_until < MIN_HOURS_BEFORE_SESSION:
-                raise RuntimeError(
-                    f"Session on {date} starts in {hours_until:.1f}h, under the "
-                    f"{MIN_HOURS_BEFORE_SESSION}h circuit breaker -- refusing to book"
-                )
-
             return s.id
     raise RuntimeError(f"No session found on {date}")
 
@@ -150,13 +145,14 @@ def book_court(
     date: str,
     program_slug: str = DEFAULT_PROGRAM_SLUG,
     card_last4: str = DEFAULT_CARD_LAST4,
+    same_day_protection: bool = True,
 ) -> dict:
     # clinic_id/plan_id are derived from the same fetch as the session lookup
     # (rather than taken as separate defaulted args) so they can never drift
     # out of sync with program_slug.
     program_page = get_program_page(session, program_slug)
     program_data = parse_program_data(program_page, program_slug)
-    session_id = find_open_session_id(program_data, date)
+    session_id = find_open_session_id(program_data, date, same_day_protection=same_day_protection)
     plan_id = program_data.prices[0].id
 
     cards = get_saved_cards(session)
@@ -198,50 +194,58 @@ def book_court(
     }
 
 
-def next_occurrence(weekday: Weekday, today: date | None = None) -> date:
-    """The next calendar date (today counts) that falls on the given weekday,
-    found by scanning the next 8 days."""
+def next_occurrences(weekday: Weekday, today: date | None = None) -> list[date]:
+    """Every calendar date in the next 8 days (today counts) that falls on
+    the given weekday. Usually a single date, but an 8-day window can catch
+    the same weekday twice (today and 7 days out)."""
     today = today or date.today()
     # Weekday is declared Monday..Sunday, matching date.weekday()'s 0..6.
     weekdays_by_index = list(Weekday)
-    for offset in range(8):
-        candidate = today + timedelta(days=offset)
-        if weekdays_by_index[candidate.weekday()] == weekday:
-            return candidate
-    raise RuntimeError(f"No {weekday.value} found in the next 8 days")
+    dates = [
+        candidate
+        for offset in range(8)
+        if weekdays_by_index[(candidate := today + timedelta(days=offset)).weekday()] == weekday
+    ]
+    if not dates:
+        raise RuntimeError(f"No {weekday.value} found in the next 8 days")
+    return dates
 
 
 def book_scheduled_programs(
     session: requests.Session,
     card_last4: str = SCHEDULED_CARD_LAST4,
+    same_day_protection: bool = WEEKDAY_SCHEDULE_SAME_DAY_PROTECTION,
 ) -> ScheduledBookingResults:
     """Book every program WEEKDAY_SCHEDULE (weekday_schedule.yaml) assigns to
-    each configured weekday's next occurrence. One program's failure is
-    logged and doesn't stop the rest; once every program has been attempted,
-    a RuntimeError is raised summarizing any failures."""
+    each configured weekday, for every occurrence of that weekday in the next
+    8 days. One program's failure is logged and doesn't stop the rest; once
+    every program has been attempted, a RuntimeError is raised summarizing
+    any failures."""
     results = ScheduledBookingResults()
     for weekday, programs in WEEKDAY_SCHEDULE.items():
-        target_date = next_occurrence(weekday)
-        for program in programs:
-            try:
-                book_court(
-                    session,
-                    date=target_date.isoformat(),
-                    program_slug=program.value,
-                    card_last4=card_last4,
-                )
-                results.success_count += 1
-            except RuntimeError as e:
-                logger.error(
-                    {
-                        "weekday": weekday.value,
-                        "date": target_date.isoformat(),
-                        "program_slug": program.value,
-                        "reason": str(e),
-                    }
-                )
-                results.failed_count += 1
-                continue
+        target_dates = next_occurrences(weekday)
+        for target_date in target_dates:
+            for program in programs:
+                try:
+                    book_court(
+                        session,
+                        date=target_date.isoformat(),
+                        program_slug=program.value,
+                        card_last4=card_last4,
+                        same_day_protection=same_day_protection,
+                    )
+                    results.success_count += 1
+                except RuntimeError as e:
+                    logger.error(
+                        {
+                            "weekday": weekday.value,
+                            "date": target_date.isoformat(),
+                            "program_slug": program.value,
+                            "reason": str(e),
+                        }
+                    )
+                    results.failed_count += 1
+                    continue
 
     if results.failed_count:
         total = results.success_count + results.failed_count
@@ -301,8 +305,9 @@ def lambda_handler(event, context):
 
 def scheduled_lambda_handler(event, context):
     """Book every program WEEKDAY_SCHEDULE (weekday_schedule.yaml) assigns to
-    each configured weekday's next occurrence, using the card from that same
-    YAML file. This is a distinct Lambda entry point from lambda_handler --
+    each configured weekday, for every occurrence of that weekday in the next
+    8 days, using the card from that same YAML file. This is a distinct
+    Lambda entry point from lambda_handler --
     point the EventBridge rule driving the recurring cron booking at this
     handler specifically, so it always runs the full schedule; event content
     is ignored."""

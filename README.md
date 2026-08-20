@@ -25,7 +25,7 @@ PROXY_URL=
 # Book a single date/program
 uv run python -m playbypoint.book_court 2026-08-19 AdvancedBeginner
 
-# Run the full weekday_schedule.yaml schedule (every weekday it defines, at its next occurrence)
+# Run the full weekday_schedule.yaml schedule (every occurrence of each defined weekday in the next 8 days)
 uv run python -m playbypoint.book_court --scheduled
 ```
 
@@ -33,7 +33,7 @@ See `playbypoint/weekday_schedule.yaml` for the example weekday -> program(s) ma
 
 ## Circuit breaker
 
-`MIN_HOURS_BEFORE_SESSION` (`models.py`) controls how many hours before a session's start time booking is refused. Currently set to 30 hours.
+`same_day_protection` (`weekday_schedule.yaml`) controls whether a scheduled run refuses to book a session that falls on today's UTC date, regardless of what time it starts. Defaults to `true`; set to `false` to disable.
 
 ## Deploying to AWS Lambda
 

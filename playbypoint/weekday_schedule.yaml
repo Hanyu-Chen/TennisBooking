@@ -4,6 +4,10 @@
 # Card used for every scheduled booking.
 card_last4: "1740"
 
+# Circuit breaker: when true, refuse to book a session that falls on today's
+# UTC date, regardless of what time it starts. Set to false to disable.
+same_day_protection: true
+
 # Which program(s) to book for the next occurrence of each weekday. Keys
 # must match playbypoint.models.Weekday values; list items must match
 # playbypoint.models.Program values.
@@ -15,3 +19,10 @@ schedule:
   Thursday:
     - AdvancedBeginner
     - IntermediateClinic
+    - private-lesson-da085204-2cc6-474d-adce-0f477daddab7
+    - private-group-class
+  Friday:
+    - AdvancedBeginner
+    - IntermediateClinic
+    - private-lesson-da085204-2cc6-474d-adce-0f477daddab7
+    - private-group-class

@@ -16,9 +16,6 @@ from pydantic import BaseModel, field_validator
 DEFAULT_PROGRAM_SLUG = "IntermediateClinic"
 DEFAULT_CARD_LAST4 = "1740"
 
-# Circuit breaker: refuse to book a session starting sooner than this.
-MIN_HOURS_BEFORE_SESSION = 30
-
 _WEEKDAY_SCHEDULE_PATH = Path(__file__).parent / "weekday_schedule.yaml"
 
 
@@ -39,7 +36,7 @@ class Weekday(StrEnum):
     SUNDAY = "Sunday"
 
 
-def _load_schedule_config(path: Path) -> tuple[dict[Weekday, list[Program]], str]:
+def _load_schedule_config(path: Path) -> tuple[dict[Weekday, list[Program]], str, bool]:
     with path.open() as f:
         raw = yaml.safe_load(f)
 
@@ -52,12 +49,21 @@ def _load_schedule_config(path: Path) -> tuple[dict[Weekday, list[Program]], str
     if not card_last4.isdigit() or len(card_last4) != 4:
         raise ValueError(f"card_last4 in {path} must be exactly 4 digits")
 
-    return schedule, card_last4
+    same_day_protection = raw.get("same_day_protection", True)
+    if not isinstance(same_day_protection, bool):
+        raise ValueError(f"same_day_protection in {path} must be true or false")
+
+    return schedule, card_last4, same_day_protection
 
 
 WEEKDAY_SCHEDULE: dict[Weekday, list[Program]]
 SCHEDULED_CARD_LAST4: str
-WEEKDAY_SCHEDULE, SCHEDULED_CARD_LAST4 = _load_schedule_config(_WEEKDAY_SCHEDULE_PATH)
+WEEKDAY_SCHEDULE_SAME_DAY_PROTECTION: bool
+(
+    WEEKDAY_SCHEDULE,
+    SCHEDULED_CARD_LAST4,
+    WEEKDAY_SCHEDULE_SAME_DAY_PROTECTION,
+) = _load_schedule_config(_WEEKDAY_SCHEDULE_PATH)
 
 
 class ClinicPrice(BaseModel):
